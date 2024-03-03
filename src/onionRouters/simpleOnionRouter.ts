@@ -3,7 +3,7 @@ import express from "express";
 import {BASE_ONION_ROUTER_PORT, BASE_USER_PORT} from "../config";
 import http from "http";
 import { REGISTRY_PORT } from "../config";
-import {generateRsaKeyPair, exportPubKey, exportPrvKey, rsaDecrypt} from "../crypto";
+import {generateRsaKeyPair, exportPubKey, exportPrvKey, rsaDecrypt, symDecrypt} from "../crypto";
 
 
 
@@ -11,8 +11,7 @@ export async function simpleOnionRouter(nodeId: number) {
   const onionRouter = express();
   onionRouter.use(express.json());
   onionRouter.use(bodyParser.json());
-
-  // Generate a pair of RSA keys
+// Generate a pair of RSA keys
   const { publicKey, privateKey } = await generateRsaKeyPair();
 
   // Convert the private key to a base64 string
@@ -59,11 +58,10 @@ export async function simpleOnionRouter(nodeId: number) {
     res.send("live");
   });
 
-  const lastReceivedEncryptedMessage = null;
-  const lastReceivedDecryptedMessage = null;
-  const lastMessageDestination = null;
 
-
+  let lastReceivedEncryptedMessage: string | null = null;
+  let lastReceivedDecryptedMessage: string | null = null;
+  let lastMessageDestination: number | null = null;
 
 
   onionRouter.get("/getLastReceivedEncryptedMessage", (req, res) => {
@@ -82,6 +80,36 @@ export async function simpleOnionRouter(nodeId: number) {
     res.json({ result: privateKeyBase64 });
   });
 
+
+
+
+
+  onionRouter.post("/message", async (req, res) => {
+    const {message} = req.body; //getting the message from the body
+    //decrypting the symmetric key (beginning of the message) with our private key
+    const decryptedKey = await rsaDecrypt(message.slice(0, 344), privateKey);
+    //decrypting the rest of the message with our symmetric key
+    const decryptedMessage = await symDecrypt(decryptedKey, message.slice(344));
+    //getting the next destination from the message
+    const nextDestination = parseInt(decryptedMessage.slice(0, 10), 10);
+    //getting the rest of the message
+    const remainingMessage = decryptedMessage.slice(10);
+    //we update everything
+    lastReceivedEncryptedMessage = message;
+    lastReceivedDecryptedMessage = remainingMessage;
+    lastMessageDestination = nextDestination;
+    //and send the message to the next destination
+    await fetch(`http://localhost:${nextDestination}/message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message: remainingMessage }),
+    });
+    res.status(200).send("success");
+  });
+
+
   const server = onionRouter.listen(BASE_ONION_ROUTER_PORT + nodeId, () => {
     console.log(
         `Onion router ${nodeId} is listening on port ${
@@ -89,35 +117,6 @@ export async function simpleOnionRouter(nodeId: number) {
         }`
     );
   });
-
-  onionRouter.post("/message", async (req: express.Request, res: express.Response) => {
-    const encryptedMessage = req.body.message;
-
-    // Decrypt the outer layer of the message
-    const decryptedMessage = await rsaDecrypt(encryptedMessage, privateKey); // You need the private key to decrypt
-
-    // Determine the next node or user
-    const nextNodeOrUser = JSON.parse(decryptedMessage);
-
-    // If the next node or user is a node, forward the message
-    if (nextNodeOrUser.type === "node") {
-      await fetch(`http://localhost:${BASE_ONION_ROUTER_PORT + nextNodeOrUser.id}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: decryptedMessage }),
-      });
-    } else {
-      // If the next node or user is a user, send the decrypted message
-      await fetch(`http://localhost:${BASE_USER_PORT + nextNodeOrUser.id}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: decryptedMessage }),
-      });
-    }
-
-    res.status(200).send("Message processed");
-  });
-
 
   return server;
 }

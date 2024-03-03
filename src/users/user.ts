@@ -11,7 +11,13 @@ import {
   rsaEncrypt,
   exportSymKey
 } from "../crypto";
-import {NodeRegistry} from "@/src/registry/registry";
+import {GetNodeRegistryBody, Node} from "@/src/registry/registry";
+
+
+export interface NodeRegistry {
+  nodes: Node[];
+}
+
 
 export type SendMessageBody = {
   message: string;
@@ -28,8 +34,9 @@ export async function user(userId: number) {
     res.send("live");
   });
 
-  let lastReceivedMessage: null = null;
-  const lastSentMessage = null;
+  let lastReceivedMessage: string | null = null;
+  let lastSentMessage: string | null = null;
+  let lastCircuit: Node[] = [];
 
   _user.post("/message", (req, res) => {
     const message = req.body.message;
@@ -56,47 +63,42 @@ export async function user(userId: number) {
   });
 
   _user.post("/sendMessage", async (req, res) => {
-    const { message, destinationUserId } = req.body;
+    const { message, destinationUserId } = req.body; //extracts the message
 
-    // Fetch the node registry
-    const nodeRegistryResponse = await fetch("http://localhost:" + REGISTRY_PORT + "/getNodeRegistry");
-    const nodeRegistry: NodeRegistry = <NodeRegistry>await nodeRegistryResponse.json();
+    const nodes = await fetch(`http://localhost:8080/getNodeRegistry`)//fetch the nodes list
+        .then((res) => res.json() as Promise<GetNodeRegistryBody>)
+        .then((body) => body.nodes);
 
-    // Select 3 random nodes
-    const circuitNodes = [];
-    for (let i = 0; i < 3; i++) {
-      const randomIndex = Math.floor(Math.random() * nodeRegistry.nodes.length);
-      circuitNodes.push(nodeRegistry.nodes[randomIndex]);
-      nodeRegistry.nodes.splice(randomIndex, 1); // Remove the selected node from the array
+    let circuit: Node[] = [];
+    while (circuit.length < 3) { //creates a 3 nodes circuit from the nodes list
+      const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
+      if (!circuit.includes(randomNode)) {
+        circuit.push(randomNode);
+      }
     }
 
-    let encryptedMessage = message;
-    for (const node of circuitNodes) {
-      // Create a unique symmetric key for the node
-      const symKey = await createRandomSymmetricKey();
-      const symKeyBase64 = await exportSymKey(symKey);
-
-      // Encrypt the message with the symmetric key
-      encryptedMessage = await symEncrypt(symKey, encryptedMessage);
-
-      // Encrypt the symmetric key with the node's RSA public key
-      const encryptedSymKey = await rsaEncrypt(symKeyBase64, node.pubKey);
-
-      // Concatenate the encrypted symmetric key with the encrypted message
-      encryptedMessage = encryptedSymKey + encryptedMessage;
+    let destination = `${BASE_USER_PORT + destinationUserId}`.padStart(10, "0"); //prepares the message to send
+    let finalMessage = message;
+    for(const node of circuit) {
+      const symmetricKey = await createRandomSymmetricKey();
+      const symmetricKey64 = await exportSymKey(symmetricKey);
+      const encryptedMessage = await symEncrypt(symmetricKey, `${destination + finalMessage}`);
+      destination = `${BASE_ONION_ROUTER_PORT + node.nodeId}`.padStart(10, '0');
+      const encryptedSymKey = await rsaEncrypt(symmetricKey64, node.pubKey);
+      finalMessage = encryptedSymKey + encryptedMessage;
     }
 
-    // Send the encrypted message to the entry node's /message route
-    const entryNode = circuitNodes[0];
-    await fetch("http://localhost:" + (BASE_ONION_ROUTER_PORT + entryNode.nodeId) + "/message", {
+    circuit.reverse(); //inverses th circuit to have the node order
+    lastCircuit = circuit;
+    lastSentMessage = message;
+    await fetch(`http://localhost:${BASE_ONION_ROUTER_PORT + circuit[0].nodeId}/message`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ message: encryptedMessage }),
+      body: JSON.stringify({ message: finalMessage }),
     });
-
-    res.status(200).send("Message sent");
+    res.status(200).send("success");
   });
 
 
