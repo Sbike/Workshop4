@@ -94,8 +94,8 @@ export async function simpleOnionRouter(nodeId: number) {
     const nextDestination = parseInt(decryptedMessage.slice(0, 10), 10);
     //getting the rest of the message
     const remainingMessage = decryptedMessage.slice(10);
-    //we update everything
-    lastReceivedEncryptedMessage = message;
+
+    lastReceivedEncryptedMessage = message; //we update everything
     lastReceivedDecryptedMessage = remainingMessage;
     lastMessageDestination = nextDestination;
     //and send the message to the next destination
