@@ -12,6 +12,9 @@ export type RegisterNodeBody = {
 export type GetNodeRegistryBody = {
     nodes: Node[];
 };
+export interface NodeRegistry {
+    nodes: Node[];
+}
 
 export async function launchRegistry() {
     const _registry = express();
