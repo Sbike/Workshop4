@@ -1,11 +1,8 @@
 import bodyParser from "body-parser";
 import express from "express";
-import { BASE_USER_PORT, REGISTRY_PORT, BASE_ONION_ROUTER_PORT } from "../config";
+import { BASE_USER_PORT, BASE_ONION_ROUTER_PORT } from "../config";
 
 import {
-  generateRsaKeyPair,
-  exportPubKey,
-  exportPrvKey,
   createRandomSymmetricKey,
   symEncrypt,
   rsaEncrypt,
@@ -60,6 +57,11 @@ export async function user(userId: number) {
     console.log(
       `User ${userId} is listening on port ${BASE_USER_PORT + userId}`
     );
+  });
+
+
+  _user.get("/getLastCircuit", (req, res) => {
+    res.status(200).json({result: lastCircuit.map((node) => node.nodeId)});
   });
 
   _user.post("/sendMessage", async (req, res) => {

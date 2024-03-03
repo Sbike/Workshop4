@@ -1,6 +1,6 @@
 import bodyParser from "body-parser";
 import express from "express";
-import {BASE_ONION_ROUTER_PORT, BASE_USER_PORT} from "../config";
+import {BASE_ONION_ROUTER_PORT} from "../config";
 import http from "http";
 import { REGISTRY_PORT } from "../config";
 import {generateRsaKeyPair, exportPubKey, exportPrvKey, rsaDecrypt, symDecrypt} from "../crypto";
